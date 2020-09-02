@@ -30,16 +30,19 @@
  */
 
 const path = require('path');
-const debug = require('debug')('device-setup:test');
-
-const { getNordicUsbDevice } = require('./util/common');
-const { setupDevice, ensureBootloaderMode } = require('../');
+const {
+    getNordicUsbDevice, getNordicDfuDevice,
+    programBootloaderJlinkDevice, getJlinkDevice,
+} = require('./util/common');
+const { setupDevice } = require('../');
 
 jest.setTimeout(20000);
 
-const confirmYes = async () => true;
-const confirmNo = async () => false;
+const confirmYes = () => new Promise(resolve => resolve(true));
+const confirmNo = () => new Promise(resolve => resolve(false));
 
+const NRF52_SERIALNUMBER_REGEX = /^.*683[0-9]{6}/;
+const BOOTLOADER = path.resolve(__dirname, '../bin/fw/graviton_bootloader_mbr_v1.0.1-[nRF5_SDK_15.0.1-1.alpha_f76d012].hex');
 const OPTIONS = {
     dfu: {
         pca10059: {
@@ -50,38 +53,28 @@ const OPTIONS = {
     detailedOutput: true,
 };
 
-const serialNumber = process.env.DONGLE_SERIAL_NUMBER;
-
-const testcase = serialNumber ? it : it.skip;
-
 describe('nrf52840 dongle bootloader', () => {
-    debug('nrf52840 dongle bootloader');
+    beforeAll(async () => {
+        const device = await getJlinkDevice(NRF52_SERIALNUMBER_REGEX);
+        await programBootloaderJlinkDevice(device, BOOTLOADER);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }, 20000);
 
-    testcase('is programmed without bootloader update', async () => {
-        debug(`Looking for device ${serialNumber} for programming without bootloader update`);
-        const device = await getNordicUsbDevice(serialNumber);
+    it('is programmed without bootloader update', async () => {
+        const device = await getNordicDfuDevice();
         const result = await setupDevice(
             device,
             { ...OPTIONS, promiseConfirmBootloader: confirmNo }
         );
-        debug(`Device ${serialNumber} programmed without bootloader update`);
         expect(result.details.wasProgrammed).toEqual(true);
     });
 
-    testcase('is programmed with bootloader update', async () => {
-        debug(`Looking for device ${serialNumber} for programming with bootloader update`);
-        const device = await getNordicUsbDevice(serialNumber);
+    it('is programmed with bootloader update', async () => {
+        const device = await getNordicUsbDevice();
         const result = await setupDevice(
             device,
             { ...OPTIONS, promiseConfirmBootloader: confirmYes }
         );
         expect(result.details.wasProgrammed).toEqual(true);
-    });
-
-    testcase('is set back to bootloader mode', async () => {
-        debug(`Looking for device ${serialNumber} for setting back to bootloader mode`);
-        const device = await getNordicUsbDevice(serialNumber);
-        const result = await ensureBootloaderMode(device);
-        expect(result.serialNumber).toMatch(device.serialNumber);
     });
 });

@@ -66,7 +66,7 @@ const {
     openJLink,
     closeJLink,
     verifySerialPortAvailable,
-    getDeviceInfo,
+    getDeviceFamily,
     validateFirmware,
     programFirmware,
 } = jprogFunc;
@@ -210,8 +210,8 @@ async function validateSerialPort(device, needSerialport) {
         return device;
     }
 
-    const checkOpen = serialPath => new Promise(resolve => {
-        const port = new SerialPort(serialPath, { baudRate: 115200 }, err => {
+    const checkOpen = comName => new Promise(resolve => {
+        const port = new SerialPort(comName, { baudRate: 115200 }, err => {
             if (!err) port.close();
             resolve(!err);
         });
@@ -220,9 +220,9 @@ async function validateSerialPort(device, needSerialport) {
     for (let i = 10; i > 1; i -= 1) {
         /* eslint-disable-next-line no-await-in-loop */
         await sleep(2000 / i);
-        debug('validating serialport', device.serialport.path, i);
+        debug('validating serialport', device.serialport.comName, i);
         /* eslint-disable-next-line no-await-in-loop */
-        if (await checkOpen(device.serialport.path)) {
+        if (await checkOpen(device.serialport.comName)) {
             debug('resolving', device);
             return device;
         }
@@ -241,7 +241,8 @@ async function validateSerialPort(device, needSerialport) {
  * @returns {Promise} resolved to prepared device
  */
 async function prepareInDFUBootloader(device, dfu) {
-    debug(`${device.serialNumber} on ${device.serialport.path} is now in DFU-Bootloader...`);
+    const { comName } = device.serialport;
+    debug(`${device.serialNumber} on ${comName} is now in DFU-Bootloader...`);
 
     const { application, softdevice } = dfu;
     let { params } = dfu;
@@ -345,7 +346,8 @@ async function getBootloaderVersion(device) {
  * @returns {Promise<Object>} device object after dfu is completed and device is enumerated again.
  */
 async function updateBootloader(device) {
-    debug(`Bootloader for device ${device.serialNumber} on ${device.serialport.path} will be updated`);
+    const { comName } = device.serialport;
+    debug(`Bootloader for device ${device.serialNumber} on ${comName} will be updated`);
 
     const updates = await DfuUpdates.fromZipFilePath(LATEST_BOOTLOADER_PATH);
     const usbSerialTransport = new DfuTransportUsbSerial(device.serialNumber, 0);
@@ -552,37 +554,20 @@ export function setupDevice(selectedDevice, options) {
 
 
     if (jprog && selectedDevice.traits.includes('jlink')) {
+        let firmwareFamily;
         let wasProgrammed = false;
         return Promise.resolve()
             .then(() => needSerialport && verifySerialPortAvailable(selectedDevice))
             .then(() => openJLink(selectedDevice))
-            .then(() => getDeviceInfo(selectedDevice))
-            .then(deviceInfo => {
-                Object.assign(selectedDevice, { deviceInfo });
-
-                const family = (deviceInfo.family || '').toLowerCase();
-                const deviceType = (deviceInfo.deviceType || '').toLowerCase();
-                const shortDeviceType = deviceType.split('_').shift();
-                const boardVersion = (selectedDevice.boardVersion || '').toLowerCase();
-
-                const key = Object.keys(jprog).find(k => k.toLowerCase() === deviceType)
-                    || Object.keys(jprog).find(k => k.toLowerCase() === shortDeviceType)
-                    || Object.keys(jprog).find(k => k.toLowerCase() === boardVersion)
-                    || Object.keys(jprog).find(k => k.toLowerCase() === family);
-
-                if (!key) {
-                    throw new Error('No firmware defined for selected device');
+            .then(() => getDeviceFamily(selectedDevice))
+            .then(family => {
+                firmwareFamily = jprog[family];
+                if (!firmwareFamily) {
+                    throw new Error(`No firmware defined for ${family} family`);
                 }
-                debug('Found matching firmware definition', key);
-                return jprog[key];
             })
-            .then(async firmwareDefinition => (
-                {
-                    valid: await validateFirmware(selectedDevice, firmwareDefinition),
-                    firmwareDefinition,
-                }
-            ))
-            .then(({ valid, firmwareDefinition }) => {
+            .then(() => validateFirmware(selectedDevice, firmwareFamily))
+            .then(valid => {
                 if (valid) {
                     debug('Application firmware id matches');
                     return selectedDevice;
@@ -593,7 +578,7 @@ export function setupDevice(selectedDevice, options) {
                             // go on without update
                             return selectedDevice;
                         }
-                        return programFirmware(selectedDevice, firmwareDefinition)
+                        return programFirmware(selectedDevice, firmwareFamily)
                             .then(() => {
                                 wasProgrammed = true;
                             });
@@ -609,7 +594,6 @@ export function setupDevice(selectedDevice, options) {
     debug('Selected device cannot be prepared, maybe the app still can use it');
     return Promise.resolve(createReturnValue(
         selectedDevice,
-        { wasProgrammed: false },
-        detailedOutput,
+        { wasProgrammed: false }, detailedOutput,
     ));
 }

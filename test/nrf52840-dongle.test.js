@@ -32,7 +32,7 @@
 const path = require('path');
 const fs = require('fs');
 const { getNordicUsbDevice } = require('./util/common');
-const { setupDevice, ensureBootloaderMode } = require('../');
+const { setupDevice } = require('../');
 
 jest.setTimeout(50000);
 
@@ -48,26 +48,23 @@ const RSSI_OPTIONS = {
 const CONNECTIVITY_OPTIONS = {
     dfu: {
         pca10059: {
-            application: fs.readFileSync(path.resolve(__dirname, '../bin/fw/connectivity_4.1.0_usb_for_s132_5.1.0.hex')),
-            softdevice: fs.readFileSync(path.resolve(__dirname, '../bin/fw/s132_nrf52_5.1.0_softdevice.hex')),
-            semver: 'ble-connectivity 4.1.0+Mar-21-2019-07-43-03',
+            application: fs.readFileSync(path.resolve(__dirname, '../bin/fw/connectivity_1.2.2_usb_for_s132_3.0.hex')),
+            softdevice: fs.readFileSync(path.resolve(__dirname, '../bin/fw/s132_nrf52_3.0.0_softdevice.hex')),
+            semver: 'ble-connectivity 0.1.0+May-28-2018-12-30-56',
             params: {
                 hwVersion: 52,
                 fwVersion: 0xffffffff,
                 sdReq: [0],
-                sdId: [0xA5],
+                sdId: [0x8C],
             },
         },
     },
     detailedOutput: true,
 };
 
-const serialNumber = process.env.DONGLE_SERIAL_NUMBER;
-const testcase = serialNumber ? it : it.skip;
-
 describe('nrf52840 dongle', () => {
-    testcase('is programmed when firmware is not present, but skips programming when firmware is already present', () => (
-        getNordicUsbDevice(serialNumber)
+    it('is programmed when firmware is not present, but skips programming when firmware is already present', () => (
+        getNordicUsbDevice()
             .then(device => setupDevice(device, RSSI_OPTIONS))
             .then(device => setupDevice(device, CONNECTIVITY_OPTIONS))
             .then(result => {
@@ -77,10 +74,4 @@ describe('nrf52840 dongle', () => {
             .then(device => setupDevice(device, CONNECTIVITY_OPTIONS))
             .then(result => expect(result.details.wasProgrammed).toEqual(false))
     ));
-
-    testcase('is set back to bootloader mode', async () => {
-        const device = await getNordicUsbDevice(serialNumber);
-        const result = await ensureBootloaderMode(device);
-        expect(result.serialNumber).toMatch(device.serialNumber);
-    });
 });
